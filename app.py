@@ -92,7 +92,8 @@ def get_route_shape(points):
         return full_shape
         
     except Exception as e:
-        print(f"Connection Error: {e}")
+        st.warning(f"Connection Error: {e}")
+        return []
 
 def create_smooth_geojson(path_coords, color, label, speed_kmh=80):
     dense_coords = interpolate_points(path_coords, interval_km=0.5) 
@@ -147,7 +148,7 @@ st.title("🚛 Logistics Simulation")
 
 with st.sidebar:
     st.header("1. Input Data")
-    uploaded_file = st.file_uploader("", type=['xlsx'])
+    uploaded_file = st.file_uploader("Upload Excel File", type=['xlsx'], label_visibility="collapsed")
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
@@ -196,24 +197,26 @@ if uploaded_file:
         
         m1 = folium.Map(location=[mid_lat, mid_lon], zoom_start=zoom_lvl, tiles="CartoDB positron")
         
-        folium.PolyLine(shape_base, color='green', weight=3, opacity=0.3).add_to(m1)
+        if shape_base:
+            folium.PolyLine(shape_base, color='green', weight=3, opacity=0.3).add_to(m1)
         
         folium.Marker([port['lat'], port['lon']], icon=folium.Icon(color='blue', icon='anchor', prefix='fa'), tooltip="PORT").add_to(m1)
         folium.Marker([dest['lat'], dest['lon']], icon=folium.Icon(color='red', icon='arrow-down', prefix='fa'), tooltip="BONGKAR").add_to(m1)
         folium.Marker([org['lat'], org['lon']], icon=folium.Icon(color='green', icon='arrow-up', prefix='fa'), tooltip="MUAT").add_to(m1)
         
-        plugins.TimestampedGeoJson(
-            {'type': 'FeatureCollection', 'features': features_base},
-            period='PT1M',       
-            duration='PT1M',     
-            transition_time=50,  
-            auto_play=False,
-            loop=True,
-            max_speed=100,
-            loop_button=True,
-            date_options='HH:mm',
-            time_slider_drag_update=True
-        ).add_to(m1)
+        if features_base:
+            plugins.TimestampedGeoJson(
+                {'type': 'FeatureCollection', 'features': features_base},
+                period='PT1M',       
+                duration='PT1M',     
+                transition_time=50,  
+                auto_play=False,
+                loop=True,
+                max_speed=100,
+                loop_button=True,
+                date_options='HH:mm',
+                time_slider_drag_update=True
+            ).add_to(m1)
         
         st_folium(m1, width="100%", height=500, key="map_left")
 
@@ -222,24 +225,26 @@ if uploaded_file:
         
         m2 = folium.Map(location=[mid_lat, mid_lon], zoom_start=zoom_lvl, tiles="CartoDB positron")
         
-        folium.PolyLine(shape_triang, color='green', weight=3, opacity=0.3).add_to(m2)
+        if shape_triang:
+            folium.PolyLine(shape_triang, color='green', weight=3, opacity=0.3).add_to(m2)
         
         folium.Marker([port['lat'], port['lon']], icon=folium.Icon(color='blue', icon='anchor', prefix='fa'), tooltip="PORT").add_to(m2)
         folium.Marker([dest['lat'], dest['lon']], icon=folium.Icon(color='red', icon='arrow-down', prefix='fa'), tooltip="BONGKAR").add_to(m2)
         folium.Marker([org['lat'], org['lon']], icon=folium.Icon(color='green', icon='arrow-up', prefix='fa'), tooltip="MUAT").add_to(m2)
         
-        plugins.TimestampedGeoJson(
-            {'type': 'FeatureCollection', 'features': features_triang},
-            period='PT1M',       
-            duration='PT1M',     
-            transition_time=50,
-            auto_play=False,
-            loop=True,
-            max_speed=100,
-            loop_button=True,
-            date_options='HH:mm',
-            time_slider_drag_update=True
-        ).add_to(m2)
+        if features_triang:
+            plugins.TimestampedGeoJson(
+                {'type': 'FeatureCollection', 'features': features_triang},
+                period='PT1M',       
+                duration='PT1M',     
+                transition_time=50,
+                auto_play=False,
+                loop=True,
+                max_speed=100,
+                loop_button=True,
+                date_options='HH:mm',
+                time_slider_drag_update=True
+            ).add_to(m2)
         
         st_folium(m2, width="100%", height=500, key="map_right")
 else:

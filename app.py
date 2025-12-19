@@ -14,7 +14,7 @@ st.set_page_config(layout="wide", page_title="Logistics Simulation")
 # if "VALHALLA_URL" in st.secrets:
 #     VALHALLA_URL = st.secrets["VALHALLA_URL"]
 # else:
-VALHALLA_URL = "https://memoried-florencio-metaleptically.ngrok-free.dev"
+VALHALLA_URL = "https://memoried-florencio-metaleptically.ngrok-free.dev/route"
 
 PORT_LOCATIONS = {
     'SEMARANG': {'lat': -6.950669, 'lon': 110.424167}, 

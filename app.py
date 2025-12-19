@@ -11,9 +11,8 @@ import math
 
 st.set_page_config(layout="wide", page_title="Logistics Simulation")
 
-# if "VALHALLA_URL" in st.secrets:
-#     VALHALLA_URL = st.secrets["VALHALLA_URL"]
-# else:
+# Konfigurasi URL - Menggunakan URL Ngrok Hardcoded sesuai request Anda
+# Pastikan URL ini aktif dan mengarah ke Valhalla
 VALHALLA_URL = "https://memoried-florencio-metaleptically.ngrok-free.dev/route"
 
 PORT_LOCATIONS = {
@@ -75,6 +74,13 @@ def interpolate_points(path_coords, interval_km=0.2):
 
 @st.cache_data(show_spinner=False)
 def get_route_shape(points):
+    """
+    Mengambil shape rute dari Valhalla API.
+    Jika gagal, mengembalikan garis lurus (backup) agar aplikasi TIDAK CRASH.
+    """
+    # 1. Siapkan Backup Shape (Garis Lurus) sejak awal
+    backup_shape = [[p['lat'], p['lon']] for p in points]
+
     payload = {"locations": points, "costing": "auto", "units": "km"}
     
     headers = {
@@ -84,18 +90,37 @@ def get_route_shape(points):
     }
     
     try:
+        # Request ke API
         response = requests.post(VALHALLA_URL, json=payload, headers=headers, timeout=10)
-        data = response.json()
-        full_shape = []
-        for leg in data['trip']['legs']:
-            full_shape.extend(polyline.decode(leg['shape'], precision=6))
-        return full_shape
         
+        # 2. Cek Status Code
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                full_shape = []
+                for leg in data['trip']['legs']:
+                    full_shape.extend(polyline.decode(leg['shape'], precision=6))
+                
+                # Jika sukses decode, kembalikan shape detail
+                return full_shape
+            except Exception as json_err:
+                print(f"⚠️ JSON Error (Using Backup): {json_err}")
+                return backup_shape
+        else:
+            # Jika 404/500/502, print error di log tapi return backup ke app
+            print(f"⚠️ API Error Status {response.status_code}: {response.text[:200]}")
+            return backup_shape
+            
     except Exception as e:
-        st.warning(f"Connection Error: {e}")
-        return []
+        # Jika koneksi putus/timeout, print error di log tapi return backup ke app
+        print(f"⚠️ Connection Error (Using Backup): {e}")
+        return backup_shape
 
 def create_smooth_geojson(path_coords, color, label, speed_kmh=80):
+    # Validasi tambahan: Jika path_coords kosong/None, return list kosong
+    if not path_coords:
+        return []
+
     dense_coords = interpolate_points(path_coords, interval_km=0.5) 
     
     features = []
@@ -148,7 +173,7 @@ st.title("🚛 Logistics Simulation")
 
 with st.sidebar:
     st.header("1. Input Data")
-    uploaded_file = st.file_uploader("Upload Excel File", type=['xlsx'], label_visibility="collapsed")
+    uploaded_file = st.file_uploader("", type=['xlsx'])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
@@ -175,6 +200,7 @@ if uploaded_file:
         points_triang = [port, dest, org, port]
         shape_triang = get_route_shape(points_triang)
         
+        # shape_base dan shape_triang DIJAMIN list (tidak pernah None)
         features_base = create_smooth_geojson(shape_base, '#FF0000', 'Truk Base Case', speed_kmh=60)
         features_triang = create_smooth_geojson(shape_triang, '#00FF00', 'Truk Triangulasi', speed_kmh=60)
 
@@ -197,8 +223,8 @@ if uploaded_file:
         
         m1 = folium.Map(location=[mid_lat, mid_lon], zoom_start=zoom_lvl, tiles="CartoDB positron")
         
-        if shape_base:
-            folium.PolyLine(shape_base, color='green', weight=3, opacity=0.3).add_to(m1)
+        # shape_base aman digunakan di sini
+        folium.PolyLine(shape_base, color='green', weight=3, opacity=0.3).add_to(m1)
         
         folium.Marker([port['lat'], port['lon']], icon=folium.Icon(color='blue', icon='anchor', prefix='fa'), tooltip="PORT").add_to(m1)
         folium.Marker([dest['lat'], dest['lon']], icon=folium.Icon(color='red', icon='arrow-down', prefix='fa'), tooltip="BONGKAR").add_to(m1)
@@ -225,8 +251,8 @@ if uploaded_file:
         
         m2 = folium.Map(location=[mid_lat, mid_lon], zoom_start=zoom_lvl, tiles="CartoDB positron")
         
-        if shape_triang:
-            folium.PolyLine(shape_triang, color='green', weight=3, opacity=0.3).add_to(m2)
+        # shape_triang aman digunakan di sini
+        folium.PolyLine(shape_triang, color='green', weight=3, opacity=0.3).add_to(m2)
         
         folium.Marker([port['lat'], port['lon']], icon=folium.Icon(color='blue', icon='anchor', prefix='fa'), tooltip="PORT").add_to(m2)
         folium.Marker([dest['lat'], dest['lon']], icon=folium.Icon(color='red', icon='arrow-down', prefix='fa'), tooltip="BONGKAR").add_to(m2)

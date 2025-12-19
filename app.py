@@ -75,37 +75,24 @@ def interpolate_points(path_coords, interval_km=0.2):
 
 @st.cache_data(show_spinner=False)
 def get_route_shape(points):
-    backup_shape = [[p['lat'], p['lon']] for p in points]
-    
     payload = {"locations": points, "costing": "auto", "units": "km"}
     
     headers = {
         "Content-Type": "application/json",
-        "ngrok-skip-browser-warning": "true",  # <--- INI KUNCINYA
+        "ngrok-skip-browser-warning": "true",
         "User-Agent": "StreamlitApp"
     }
     
     try:
         response = requests.post(VALHALLA_URL, json=payload, headers=headers, timeout=10)
+        data = response.json()
+        full_shape = []
+        for leg in data['trip']['legs']:
+            full_shape.extend(polyline.decode(leg['shape'], precision=6))
+        return full_shape
         
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                full_shape = []
-                for leg in data['trip']['legs']:
-                    full_shape.extend(polyline.decode(leg['shape'], precision=6))
-                return full_shape
-            except Exception as json_err:
-                print(f"JSON Error: {json_err}")
-                return backup_shape
-        else:
-            print(f"API Status Code: {response.status_code}")
-            print(f"Response text: {response.text[:200]}") # Debugging
-            return backup_shape
-            
     except Exception as e:
         print(f"Connection Error: {e}")
-        return backup_shape
 
 def create_smooth_geojson(path_coords, color, label, speed_kmh=80):
     dense_coords = interpolate_points(path_coords, interval_km=0.5) 

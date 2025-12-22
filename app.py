@@ -11,9 +11,14 @@ import math
 
 st.set_page_config(layout="wide", page_title="Logistics Simulation")
 
-# Konfigurasi URL - Menggunakan URL Ngrok Hardcoded sesuai request Anda
-# Pastikan URL ini aktif dan mengarah ke Valhalla
-VALHALLA_URL = "https://memoried-florencio-metaleptically.ngrok-free.dev/route"
+if "VALHALLA_URL" in st.secrets:
+    base_url = st.secrets["VALHALLA_URL"].rstrip('/')
+    if not base_url.endswith("/route"):
+        VALHALLA_URL = f"{base_url}/route"
+    else:
+        VALHALLA_URL = base_url
+else:
+    VALHALLA_URL = "http://localhost:8002/route"
 
 PORT_LOCATIONS = {
     'SEMARANG': {'lat': -6.950669, 'lon': 110.424167}, 
@@ -22,7 +27,8 @@ PORT_LOCATIONS = {
     'JKT': {'lat': -6.101831, 'lon': 106.883389},
     'SURABAYA': {'lat': -7.197985, 'lon': 112.733791},
     'SBY': {'lat': -7.197985, 'lon': 112.733791},
-    'SDA': {'lat': -7.197985, 'lon': 112.733791},
+    'SAMARINDA': {'lat': -0.575588, 'lon': 117.206760},
+    'SDA': {'lat': -0.575588, 'lon': 117.206760},
     'MEDAN': {'lat': 3.718306, 'lon': 98.665792},
     'MAKASSAR': {'lat': -5.118228, 'lon': 119.421711},
     'MKS': {'lat': -5.118228, 'lon': 119.421711},
@@ -78,7 +84,6 @@ def get_route_shape(points):
     Mengambil shape rute dari Valhalla API.
     Jika gagal, mengembalikan garis lurus (backup) agar aplikasi TIDAK CRASH.
     """
-    # 1. Siapkan Backup Shape (Garis Lurus) sejak awal
     backup_shape = [[p['lat'], p['lon']] for p in points]
 
     payload = {"locations": points, "costing": "auto", "units": "km"}
@@ -90,10 +95,8 @@ def get_route_shape(points):
     }
     
     try:
-        # Request ke API
         response = requests.post(VALHALLA_URL, json=payload, headers=headers, timeout=10)
         
-        # 2. Cek Status Code
         if response.status_code == 200:
             try:
                 data = response.json()
@@ -101,23 +104,19 @@ def get_route_shape(points):
                 for leg in data['trip']['legs']:
                     full_shape.extend(polyline.decode(leg['shape'], precision=6))
                 
-                # Jika sukses decode, kembalikan shape detail
                 return full_shape
             except Exception as json_err:
                 print(f"⚠️ JSON Error (Using Backup): {json_err}")
                 return backup_shape
         else:
-            # Jika 404/500/502, print error di log tapi return backup ke app
             print(f"⚠️ API Error Status {response.status_code}: {response.text[:200]}")
             return backup_shape
             
     except Exception as e:
-        # Jika koneksi putus/timeout, print error di log tapi return backup ke app
         print(f"⚠️ Connection Error (Using Backup): {e}")
         return backup_shape
 
 def create_smooth_geojson(path_coords, color, label, speed_kmh=80):
-    # Validasi tambahan: Jika path_coords kosong/None, return list kosong
     if not path_coords:
         return []
 
@@ -169,7 +168,7 @@ def format_rp(val):
     if pd.isna(val): return "Rp 0"
     return f"Rp {val:,.0f}"
 
-st.title("🚛 Logistics Simulation")
+st.title("ROUNDTRIP VISUALIZATION")
 
 with st.sidebar:
     st.header("1. Input Data")
@@ -181,97 +180,135 @@ if uploaded_file:
     
     if 'STATUS' in df.columns: df = df[df['STATUS'] == 'MATCHED']
     
-    df['Label_Select'] = df['DEST_ID'] + " | " + df['CABANG']
+    # --- MODIFIKASI FITUR INPUT DI SINI ---
     st.sidebar.header("2. Pilih Trip")
-    selected_label = st.sidebar.selectbox("Pilih Trip ID:", df['Label_Select'].unique())
-    
-    row = df[df['Label_Select'] == selected_label].iloc[0]
-    
-    dest = {'lat': row['DEST_LAT'], 'lon': row['DEST_LON']}
-    org = {'lat': row['ORG_LAT'], 'lon': row['ORG_LON']}
-    cabang = str(row['CABANG']).upper().strip()
-    port_info = PORT_LOCATIONS.get(cabang, PORT_LOCATIONS.get('JAKARTA'))
-    port = {'lat': port_info['lat'], 'lon': port_info['lon']}
 
-    with st.spinner('Calculating Path...'):
-        points_base = [port, dest, port, org, port]
-        shape_base = get_route_shape(points_base)
+    # A. Pilih Cabang Terlebih Dahulu
+    if 'CABANG' in df.columns:
+        cabang_options = sorted(df['CABANG'].dropna().unique())
+        selected_cabang = st.sidebar.selectbox("Pilih Cabang / Port:", cabang_options)
         
-        points_triang = [port, dest, org, port]
-        shape_triang = get_route_shape(points_triang)
-        
-        # shape_base dan shape_triang DIJAMIN list (tidak pernah None)
-        features_base = create_smooth_geojson(shape_base, '#FF0000', 'Truk Base Case', speed_kmh=60)
-        features_triang = create_smooth_geojson(shape_triang, '#00FF00', 'Truk Triangulasi', speed_kmh=60)
+        # Filter dataframe berdasarkan cabang yang dipilih
+        df_filtered = df[df['CABANG'] == selected_cabang]
+    else:
+        st.sidebar.warning("Kolom 'CABANG' tidak ditemukan.")
+        selected_cabang = None
+        df_filtered = df
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Jarak Base Case", f"{row.get('JARAK_VIA_PORT_KM', 0):.1f} km")
-    m2.metric("Jarak Triangulasi", f"{row.get('JARAK_TRIANGULASI_KM', 0):.1f} km")
-    m3.metric("Net Saving", format_rp(row.get('ESTIMASI_SAVING_RP', 0)), delta="PROFIT")
-    m4.metric("Idle Time", f"{row.get('IDLE_TIME_JAM', 0):.1f} Jam")
-    
-    st.markdown("---")
-    
-    col_left, col_right = st.columns(2)
-    
-    mid_lat = (dest['lat'] + org['lat'] + port['lat']) / 3
-    mid_lon = (dest['lon'] + org['lon'] + port['lon']) / 3
-    zoom_lvl = 10
+    # B. Buat Label SOPT (Kec Dest -> Kec Orig)
+    if not df_filtered.empty:
+        # Coba deteksi nama kolom kecamatan secara otomatis
+        # Anda bisa mengubah string ini jika nama kolom di excel berbeda
+        # Contoh: 'KECAMATAN_DEST', 'DISTRICT_DEST', 'DEST_KECAMATAN'
+        col_kec_dest = 'DEST_KEC'
+        col_kec_org = 'ORG_KEC'
 
-    with col_left:
-        st.subheader("🔴 Skenario Base Case")
-        
-        m1 = folium.Map(location=[mid_lat, mid_lon], zoom_start=zoom_lvl, tiles="CartoDB positron")
-        
-        # shape_base aman digunakan di sini
-        folium.PolyLine(shape_base, color='green', weight=3, opacity=0.3).add_to(m1)
-        
-        folium.Marker([port['lat'], port['lon']], icon=folium.Icon(color='blue', icon='anchor', prefix='fa'), tooltip="PORT").add_to(m1)
-        folium.Marker([dest['lat'], dest['lon']], icon=folium.Icon(color='red', icon='arrow-down', prefix='fa'), tooltip="BONGKAR").add_to(m1)
-        folium.Marker([org['lat'], org['lon']], icon=folium.Icon(color='green', icon='arrow-up', prefix='fa'), tooltip="MUAT").add_to(m1)
-        
-        if features_base:
-            plugins.TimestampedGeoJson(
-                {'type': 'FeatureCollection', 'features': features_base},
-                period='PT1M',       
-                duration='PT1M',     
-                transition_time=50,  
-                auto_play=False,
-                loop=True,
-                max_speed=100,
-                loop_button=True,
-                date_options='HH:mm',
-                time_slider_drag_update=True
-            ).add_to(m1)
-        
-        st_folium(m1, width="100%", height=500, key="map_left")
+        # Fungsi Helper untuk membuat label
+        def create_sopt_label(row):
+            sopt_id = str(row.get('DEST_ID', 'N/A'))
+            # Ambil nama kecamatan, jika kolom tidak ada, gunakan '-'
+            kec_dest = str(row.get(col_kec_dest, '-'))
+            kec_org = str(row.get(col_kec_org, '-'))
+            return f"{sopt_id} ({kec_dest} -> {kec_org})"
 
-    with col_right:
-        st.subheader("🟢 Skenario Triangulasi")
+        # Terapkan label ke dataframe filtered
+        df_filtered['SOPT_Label'] = df_filtered.apply(create_sopt_label, axis=1)
+
+        # C. Dropdown Pemilihan SOPT
+        selected_sopt_label = st.sidebar.selectbox(
+            "Pilih SOPT (Dest -> Orig):", 
+            df_filtered['SOPT_Label'].unique()
+        )
         
-        m2 = folium.Map(location=[mid_lat, mid_lon], zoom_start=zoom_lvl, tiles="CartoDB positron")
+        # Ambil row data berdasarkan label yang dipilih
+        row = df_filtered[df_filtered['SOPT_Label'] == selected_sopt_label].iloc[0]
+
+        # --- LOGIKA VISUALISASI (Tidak berubah) ---
         
-        # shape_triang aman digunakan di sini
-        folium.PolyLine(shape_triang, color='green', weight=3, opacity=0.3).add_to(m2)
+        dest = {'lat': row['DEST_LAT'], 'lon': row['DEST_LON']}
+        org = {'lat': row['ORG_LAT'], 'lon': row['ORG_LON']}
+        cabang = str(row['CABANG']).upper().strip()
+        port_info = PORT_LOCATIONS.get(cabang, PORT_LOCATIONS.get('JAKARTA'))
+        port = {'lat': port_info['lat'], 'lon': port_info['lon']}
+
+        with st.spinner('Calculating Path...'):
+            points_base = [port, dest, port, org, port]
+            shape_base = get_route_shape(points_base)
+            
+            points_triang = [port, dest, org, port]
+            shape_triang = get_route_shape(points_triang)
+            
+            features_base = create_smooth_geojson(shape_base, '#FF0000', 'Truk Base Case', speed_kmh=60)
+            features_triang = create_smooth_geojson(shape_triang, '#00FF00', 'Truk Triangulasi', speed_kmh=60)
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Jarak Base Case", f"{row.get('JARAK_VIA_PORT_KM', 0):.1f} km")
+        m2.metric("Jarak Triangulasi", f"{row.get('JARAK_TRIANGULASI_KM', 0):.1f} km")
+        m3.metric("Net Saving", format_rp(row.get('ESTIMASI_SAVING_RP', 0)), delta="PROFIT")
+        m4.metric("Idle Time", f"{row.get('IDLE_TIME_JAM', 0):.1f} Jam")
         
-        folium.Marker([port['lat'], port['lon']], icon=folium.Icon(color='blue', icon='anchor', prefix='fa'), tooltip="PORT").add_to(m2)
-        folium.Marker([dest['lat'], dest['lon']], icon=folium.Icon(color='red', icon='arrow-down', prefix='fa'), tooltip="BONGKAR").add_to(m2)
-        folium.Marker([org['lat'], org['lon']], icon=folium.Icon(color='green', icon='arrow-up', prefix='fa'), tooltip="MUAT").add_to(m2)
+        st.markdown("---")
         
-        if features_triang:
-            plugins.TimestampedGeoJson(
-                {'type': 'FeatureCollection', 'features': features_triang},
-                period='PT1M',       
-                duration='PT1M',     
-                transition_time=50,
-                auto_play=False,
-                loop=True,
-                max_speed=100,
-                loop_button=True,
-                date_options='HH:mm',
-                time_slider_drag_update=True
-            ).add_to(m2)
+        col_left, col_right = st.columns(2)
         
-        st_folium(m2, width="100%", height=500, key="map_right")
+        mid_lat = (dest['lat'] + org['lat'] + port['lat']) / 3
+        mid_lon = (dest['lon'] + org['lon'] + port['lon']) / 3
+        zoom_lvl = 10
+
+        with col_left:
+            st.subheader("🔴 Skenario Base Case")
+            
+            m1 = folium.Map(location=[mid_lat, mid_lon], zoom_start=zoom_lvl, tiles="CartoDB positron")
+            
+            folium.PolyLine(shape_base, color='green', weight=3, opacity=0.3).add_to(m1)
+            
+            folium.Marker([port['lat'], port['lon']], icon=folium.Icon(color='blue', icon='anchor', prefix='fa'), tooltip="PORT").add_to(m1)
+            folium.Marker([dest['lat'], dest['lon']], icon=folium.Icon(color='red', icon='arrow-down', prefix='fa'), tooltip="BONGKAR").add_to(m1)
+            folium.Marker([org['lat'], org['lon']], icon=folium.Icon(color='green', icon='arrow-up', prefix='fa'), tooltip="MUAT").add_to(m1)
+            
+            if features_base:
+                plugins.TimestampedGeoJson(
+                    {'type': 'FeatureCollection', 'features': features_base},
+                    period='PT1M',       
+                    duration='PT1M',     
+                    transition_time=50,  
+                    auto_play=False,
+                    loop=True,
+                    max_speed=100,
+                    loop_button=True,
+                    date_options='HH:mm',
+                    time_slider_drag_update=True
+                ).add_to(m1)
+            
+            st_folium(m1, width="100%", height=500, key="map_left")
+
+        with col_right:
+            st.subheader("🟢 Skenario Triangulasi")
+            
+            m2 = folium.Map(location=[mid_lat, mid_lon], zoom_start=zoom_lvl, tiles="CartoDB positron")
+            
+            folium.PolyLine(shape_triang, color='green', weight=3, opacity=0.3).add_to(m2)
+            
+            folium.Marker([port['lat'], port['lon']], icon=folium.Icon(color='blue', icon='anchor', prefix='fa'), tooltip="PORT").add_to(m2)
+            folium.Marker([dest['lat'], dest['lon']], icon=folium.Icon(color='red', icon='arrow-down', prefix='fa'), tooltip="BONGKAR").add_to(m2)
+            folium.Marker([org['lat'], org['lon']], icon=folium.Icon(color='green', icon='arrow-up', prefix='fa'), tooltip="MUAT").add_to(m2)
+            
+            if features_triang:
+                plugins.TimestampedGeoJson(
+                    {'type': 'FeatureCollection', 'features': features_triang},
+                    period='PT1M',       
+                    duration='PT1M',     
+                    transition_time=50,
+                    auto_play=False,
+                    loop=True,
+                    max_speed=100,
+                    loop_button=True,
+                    date_options='HH:mm',
+                    time_slider_drag_update=True
+                ).add_to(m2)
+            
+            st_folium(m2, width="100%", height=500, key="map_right")
+    else:
+        st.warning("Data tidak ditemukan untuk cabang ini.")
 else:
     st.info("Silakan Upload File Hasil Mapping")

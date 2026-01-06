@@ -291,40 +291,11 @@ if uploaded_file:
             
             st_folium(m2, width="100%", height=500, key="map_right")
         
-        # Display selected row data
-        st.markdown("---")
-        st.subheader("📋 Detail Data Trip yang Dipilih")
+        row_display = row.drop(labels=['SOPT_Label', 'CEK'], errors='ignore')
         
-        # Create a cleaner display of the row data
-        row_display = row.drop(labels=['SOPT_Label'], errors='ignore')
-        
-        # Convert to DataFrame for better display
         row_df = pd.DataFrame(row_display).T
         row_df.index = ['Value']
         
-        # Display as expandable sections
-        col_info1, col_info2 = st.columns(2)
-        
-        with col_info1:
-            st.markdown("**📍 Informasi Lokasi**")
-            location_cols = [c for c in row_display.index if any(x in c.upper() for x in ['LAT', 'LON', 'KEC', 'KAB', 'PROV', 'DEST', 'ORG', 'CABANG', 'PORT'])]
-            if location_cols:
-                location_data = {col: row_display[col] for col in location_cols if col in row_display.index}
-                for key, val in location_data.items():
-                    st.write(f"**{key}:** {val}")
-        
-        with col_info2:
-            st.markdown("**📊 Informasi Trip & Biaya**")
-            trip_cols = [c for c in row_display.index if any(x in c.upper() for x in ['JARAK', 'SAVING', 'BIAYA', 'COST', 'TIME', 'JAM', 'STATUS', 'ID'])]
-            if trip_cols:
-                trip_data = {col: row_display[col] for col in trip_cols if col in row_display.index}
-                for key, val in trip_data.items():
-                    if 'RP' in key.upper() or 'SAVING' in key.upper() or 'BIAYA' in key.upper() or 'COST' in key.upper():
-                        st.write(f"**{key}:** {format_rp(val) if pd.notna(val) else 'N/A'}")
-                    else:
-                        st.write(f"**{key}:** {val}")
-        
-        # Show full data in expander
         with st.expander("🔍 Lihat Semua Data (Full Row)", expanded=False):
             st.dataframe(row_df, use_container_width=True)
     else:

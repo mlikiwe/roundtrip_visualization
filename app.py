@@ -80,10 +80,6 @@ def interpolate_points(path_coords, interval_km=0.2):
 
 @st.cache_data(show_spinner=False)
 def get_route_shape(points):
-    """
-    Mengambil shape rute dari Valhalla API.
-    Jika gagal, mengembalikan garis lurus (backup) agar aplikasi TIDAK CRASH.
-    """
     backup_shape = [[p['lat'], p['lon']] for p in points]
 
     payload = {"locations": points, "costing": "auto", "units": "km"}
@@ -180,51 +176,37 @@ if uploaded_file:
     
     if 'STATUS' in df.columns: df = df[df['STATUS'] == 'MATCHED']
     
-    # --- MODIFIKASI FITUR INPUT DI SINI ---
     st.sidebar.header("2. Pilih Trip")
 
-    # A. Pilih Cabang Terlebih Dahulu
     if 'CABANG' in df.columns:
         cabang_options = sorted(df['CABANG'].dropna().unique())
         selected_cabang = st.sidebar.selectbox("Pilih Cabang / Port:", cabang_options)
         
-        # Filter dataframe berdasarkan cabang yang dipilih
         df_filtered = df[df['CABANG'] == selected_cabang]
     else:
         st.sidebar.warning("Kolom 'CABANG' tidak ditemukan.")
         selected_cabang = None
         df_filtered = df
 
-    # B. Buat Label SOPT (Kec Dest -> Kec Orig)
     if not df_filtered.empty:
-        # Coba deteksi nama kolom kecamatan secara otomatis
-        # Anda bisa mengubah string ini jika nama kolom di excel berbeda
-        # Contoh: 'KECAMATAN_DEST', 'DISTRICT_DEST', 'DEST_KECAMATAN'
         col_kec_dest = 'DEST_KEC'
         col_kec_org = 'ORG_KEC'
 
-        # Fungsi Helper untuk membuat label
         def create_sopt_label(row):
             sopt_id = str(row.get('DEST_ID', 'N/A'))
-            # Ambil nama kecamatan, jika kolom tidak ada, gunakan '-'
             kec_dest = str(row.get(col_kec_dest, '-'))
             kec_org = str(row.get(col_kec_org, '-'))
             return f"{sopt_id} ({kec_dest} -> {kec_org})"
 
-        # Terapkan label ke dataframe filtered
         df_filtered['SOPT_Label'] = df_filtered.apply(create_sopt_label, axis=1)
 
-        # C. Dropdown Pemilihan SOPT
         selected_sopt_label = st.sidebar.selectbox(
             "Pilih SOPT (Dest -> Orig):", 
             df_filtered['SOPT_Label'].unique()
         )
         
-        # Ambil row data berdasarkan label yang dipilih
         row = df_filtered[df_filtered['SOPT_Label'] == selected_sopt_label].iloc[0]
 
-        # --- LOGIKA VISUALISASI (Tidak berubah) ---
-        
         dest = {'lat': row['DEST_LAT'], 'lon': row['DEST_LON']}
         org = {'lat': row['ORG_LAT'], 'lon': row['ORG_LON']}
         cabang = str(row['CABANG']).upper().strip()
@@ -308,6 +290,43 @@ if uploaded_file:
                 ).add_to(m2)
             
             st_folium(m2, width="100%", height=500, key="map_right")
+        
+        # Display selected row data
+        st.markdown("---")
+        st.subheader("📋 Detail Data Trip yang Dipilih")
+        
+        # Create a cleaner display of the row data
+        row_display = row.drop(labels=['SOPT_Label'], errors='ignore')
+        
+        # Convert to DataFrame for better display
+        row_df = pd.DataFrame(row_display).T
+        row_df.index = ['Value']
+        
+        # Display as expandable sections
+        col_info1, col_info2 = st.columns(2)
+        
+        with col_info1:
+            st.markdown("**📍 Informasi Lokasi**")
+            location_cols = [c for c in row_display.index if any(x in c.upper() for x in ['LAT', 'LON', 'KEC', 'KAB', 'PROV', 'DEST', 'ORG', 'CABANG', 'PORT'])]
+            if location_cols:
+                location_data = {col: row_display[col] for col in location_cols if col in row_display.index}
+                for key, val in location_data.items():
+                    st.write(f"**{key}:** {val}")
+        
+        with col_info2:
+            st.markdown("**📊 Informasi Trip & Biaya**")
+            trip_cols = [c for c in row_display.index if any(x in c.upper() for x in ['JARAK', 'SAVING', 'BIAYA', 'COST', 'TIME', 'JAM', 'STATUS', 'ID'])]
+            if trip_cols:
+                trip_data = {col: row_display[col] for col in trip_cols if col in row_display.index}
+                for key, val in trip_data.items():
+                    if 'RP' in key.upper() or 'SAVING' in key.upper() or 'BIAYA' in key.upper() or 'COST' in key.upper():
+                        st.write(f"**{key}:** {format_rp(val) if pd.notna(val) else 'N/A'}")
+                    else:
+                        st.write(f"**{key}:** {val}")
+        
+        # Show full data in expander
+        with st.expander("🔍 Lihat Semua Data (Full Row)", expanded=False):
+            st.dataframe(row_df, use_container_width=True)
     else:
         st.warning("Data tidak ditemukan untuk cabang ini.")
 else:
